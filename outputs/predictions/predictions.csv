@@ -1,0 +1,12 @@
+image_path,predicted_target,correction,target_column,unit,direction
+data/prediction/25700_0.jpg,1.0794999599456787,-1.0794999599456787,defocus_index,index,current position is positive side from focus
+data/prediction/25700_1.jpg,0.9191740155220032,-0.9191740155220032,defocus_index,index,current position is positive side from focus
+data/prediction/25700_2.jpg,0.9133366942405701,-0.9133366942405701,defocus_index,index,current position is positive side from focus
+data/prediction/25700_3.jpg,0.4535651206970215,-0.4535651206970215,defocus_index,index,current position is positive side from focus
+data/prediction/25700_4.jpg,0.2591896653175354,-0.2591896653175354,defocus_index,index,current position is positive side from focus
+data/prediction/25700_5.jpg,0.42548856139183044,-0.42548856139183044,defocus_index,index,current position is positive side from focus
+data/prediction/25700_6.jpg,0.7273114323616028,-0.7273114323616028,defocus_index,index,current position is positive side from focus
+data/prediction/25700_7.jpg,1.2664180994033813,-1.2664180994033813,defocus_index,index,current position is positive side from focus
+data/prediction/25700_8.jpg,1.7496896982192993,-1.7496896982192993,defocus_index,index,current position is positive side from focus
+data/prediction/25700_9.jpg,2.2854883670806885,-2.2854883670806885,defocus_index,index,current position is positive side from focus
+data/prediction/25701_0.jpg,0.6686742901802063,-0.6686742901802063,defocus_index,index,current position is positive side from focus

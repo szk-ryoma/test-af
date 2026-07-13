@@ -1,0 +1,56 @@
+data:
+  raw_dir: data/wbc_multifocus
+  labels_csv: data/labels.csv
+  split_dir: data/splits
+
+outputs:
+  figure_dir: outputs/figures
+
+brenner:
+  shift: 2
+  focus_method: max
+
+label:
+  z_step_um: 0.4
+  definition: "defocus_index = z_index - z_focus_index"
+
+split:
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  seed: 42
+
+train:
+  train_csv: data/splits/train.csv
+  val_csv: data/splits/val.csv
+  batch_size: 16
+  epochs: 3
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  optimizer: adamw
+  loss: smooth_l1
+  num_workers: 4
+  seed: 42
+  device: mps
+  save_dir: outputs/checkpoints
+  log_csv: outputs/logs/train_log.csv
+  best_model_name: best_model.pth
+  last_model_name: last_model.pth
+  sign_epsilon: 0.0
+
+eval:
+  test_csv: data/splits/test.csv
+  checkpoint: outputs/checkpoints/best_model.pth
+  batch_size: 16
+  num_workers: 4
+  device: auto
+  output_dir: outputs
+  predictions_csv: outputs/predictions/test_predictions.csv
+  pred_vs_true_fig: outputs/figures/pred_vs_true.png
+  error_hist_fig: outputs/figures/error_histogram.png
+  sign_epsilon: 0.0
+
+predict:
+  checkpoint: outputs/checkpoints/best_model.pth
+  device: auto
+  output_csv: outputs/predictions/predictions.csv
