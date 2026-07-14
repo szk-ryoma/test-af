@@ -354,20 +354,18 @@ def main() -> None:
     """CLI のメイン処理を実行する。"""
     args = _parse_args()
     config = load_config(args.config)
-    data_config = config["data"]
-    outputs_config = config["outputs"]
-    brenner_config = config["brenner"]
-    label_config = config["label"]
-    split_config = config["split"]
+    make_labels_config = config["make_labels"]
 
-    raw_dir = args.raw_dir or Path(data_config["raw_dir"])
-    labels_csv = args.labels_csv or Path(data_config["labels_csv"])
-    split_dir = args.split_dir or Path(data_config["split_dir"])
-    figure_dir = args.figure_dir or Path(outputs_config["figure_dir"])
-    brenner_shift = args.brenner_shift if args.brenner_shift is not None else int(brenner_config["shift"])
-    focus_method = args.focus_method or str(brenner_config["focus_method"])
-    z_step_um = args.z_step_um if args.z_step_um is not None else label_config["z_step_um"]
-    seed = args.seed if args.seed is not None else int(split_config["seed"])
+    raw_dir = args.raw_dir or Path(make_labels_config["raw_dir"])
+    labels_csv = args.labels_csv or Path(make_labels_config["labels_csv"])
+    split_dir = args.split_dir or Path(make_labels_config["split_dir"])
+    figure_dir = args.figure_dir or Path(make_labels_config["figure_dir"])
+    brenner_shift = (
+        args.brenner_shift if args.brenner_shift is not None else int(make_labels_config["brenner_shift"])
+    )
+    focus_method = args.focus_method or str(make_labels_config["focus_method"])
+    z_step_um = args.z_step_um if args.z_step_um is not None else make_labels_config["z_step_um"]
+    seed = args.seed if args.seed is not None else int(make_labels_config["seed"])
 
     if z_step_um is not None:
         z_step_um = float(z_step_um)
@@ -380,9 +378,9 @@ def main() -> None:
     )
     labels_df = split_by_stack_id(
         labels_df,
-        train_ratio=float(split_config["train_ratio"]),
-        val_ratio=float(split_config["val_ratio"]),
-        test_ratio=float(split_config["test_ratio"]),
+        train_ratio=float(make_labels_config["train_ratio"]),
+        val_ratio=float(make_labels_config["val_ratio"]),
+        test_ratio=float(make_labels_config["test_ratio"]),
         seed=seed,
     )
 
