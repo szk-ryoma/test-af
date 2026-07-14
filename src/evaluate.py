@@ -21,20 +21,6 @@ from dataset import build_dataset_from_config, load_config
 from model import build_model_from_config
 
 
-DEFAULT_EVAL_CONFIG: dict[str, Any] = {
-    "test_csv": "data/splits/test.csv",
-    "checkpoint": "outputs/checkpoints/best_model.pth",
-    "batch_size": 16,
-    "num_workers": 4,
-    "device": "auto",
-    "output_dir": "outputs",
-    "predictions_csv": "outputs/predictions/test_predictions.csv",
-    "pred_vs_true_fig": "outputs/figures/pred_vs_true.png",
-    "error_hist_fig": "outputs/figures/error_histogram.png",
-    "sign_epsilon": 0.0,
-}
-
-
 def get_device(device_name: str = "auto") -> torch.device:
     """指定名から利用する torch.device を決める。"""
     if device_name == "auto":
@@ -201,10 +187,8 @@ def save_error_histogram(
 
 
 def _get_eval_config(config: dict) -> dict[str, Any]:
-    """config の eval セクションにデフォルト値を補う。"""
-    merged = DEFAULT_EVAL_CONFIG.copy()
-    merged.update(config.get("eval", {}))
-    return merged
+    """config の eval セクションを取得する。"""
+    return config["eval"]
 
 
 def _get_metadata_df(dataset: Any, test_csv: Path, config: dict) -> pd.DataFrame:
@@ -215,7 +199,7 @@ def _get_metadata_df(dataset: Any, test_csv: Path, config: dict) -> pd.DataFrame
             if isinstance(value, pd.DataFrame):
                 return value.copy()
 
-    target_column = config.get("dataset", {}).get("target_column", "defocus_position")
+    target_column = config["dataset"]["target_column"]
     metadata_df = pd.read_csv(test_csv)
     return metadata_df.dropna(subset=[target_column]).reset_index(drop=True)
 

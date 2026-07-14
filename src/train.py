@@ -21,26 +21,6 @@ from dataset import build_dataset_from_config, load_config
 from model import build_model_from_config
 
 
-DEFAULT_TRAIN_CONFIG: dict[str, Any] = {
-    "train_csv": "data/splits/train.csv",
-    "val_csv": "data/splits/val.csv",
-    "batch_size": 16,
-    "epochs": 3,
-    "learning_rate": 0.0001,
-    "weight_decay": 0.0001,
-    "optimizer": "adamw",
-    "loss": "smooth_l1",
-    "num_workers": 4,
-    "seed": 42,
-    "device": "mps",
-    "save_dir": "outputs/checkpoints",
-    "log_csv": "outputs/logs/train_log.csv",
-    "best_model_name": "best_model.pth",
-    "last_model_name": "last_model.pth",
-    "sign_epsilon": 0.0,
-}
-
-
 def set_seed(seed: int) -> None:
     """Python random、NumPy、PyTorch の乱数 seed を固定する。"""
     random.seed(seed)
@@ -218,10 +198,8 @@ def save_checkpoint(
 
 
 def _get_train_config(config: dict) -> dict[str, Any]:
-    """config の train セクションにデフォルト値を補う。"""
-    merged = DEFAULT_TRAIN_CONFIG.copy()
-    merged.update(config.get("train", {}))
-    return merged
+    """config の train セクションを取得する。"""
+    return config["train"]
 
 
 def _parse_args() -> argparse.Namespace:

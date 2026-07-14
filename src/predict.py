@@ -21,22 +21,6 @@ from model import build_model_from_config
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 
-DEFAULT_DATASET_CONFIG = {
-    "target_column": "defocus_position",
-    "image_size": 672,
-    "channels": 3,
-    "normalize": True,
-    "mean": [0.485, 0.456, 0.406],
-    "std": [0.229, 0.224, 0.225],
-}
-
-DEFAULT_PREDICT_CONFIG = {
-    "checkpoint": "outputs/checkpoints/best_model.pth",
-    "device": "auto",
-    "output_csv": "outputs/predictions/predictions.csv",
-}
-
-
 def get_device(device_name: str = "auto") -> torch.device:
     """指定名から利用する torch.device を決める。"""
     if device_name == "auto":
@@ -59,16 +43,20 @@ def get_device(device_name: str = "auto") -> torch.device:
 
 
 def load_config(config_path: str | Path) -> dict:
-    """YAML config を読み込む。存在しない場合や空の場合は空 dict を返す。"""
+    """YAML config を読み込む。"""
     path = Path(config_path)
     if not path.exists():
-        return {}
+        raise FileNotFoundError(f"config ファイルが見つかりません: {path}")
 
     import yaml
 
     with path.open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
-    return {} if config is None else config
+    if config is None:
+        raise ValueError(f"config ファイルが空です: {path}")
+    if not isinstance(config, dict):
+        raise ValueError(f"config のトップレベルは mapping である必要があります: {path}")
+    return config
 
 
 def load_checkpoint(
@@ -90,13 +78,17 @@ def merge_config(
     file_config: dict,
     checkpoint_config: dict | None,
 ) -> dict:
-    """推論に使うconfigを決める。
+    """推論に使うconfigを統合する。
 
-    学習時設定との整合性を優先するため、checkpoint内configがあればそれを優先する。
+    model/dataset は学習時設定を優先し、旧checkpointで未保存の場合は
+    configファイルの設定を使う。
     """
+    merged = file_config.copy()
     if checkpoint_config:
-        return checkpoint_config
-    return file_config
+        for section in ("model", "dataset"):
+            if section in checkpoint_config:
+                merged[section] = checkpoint_config[section]
+    return merged
 
 
 def preprocess_image(
@@ -250,17 +242,13 @@ def _prepare_stats(values: Sequence[float] | None, channels: int, stat_name: str
 
 
 def _get_dataset_config(config: dict) -> dict:
-    """dataset設定にデフォルト値を補う。"""
-    merged = DEFAULT_DATASET_CONFIG.copy()
-    merged.update(config or {})
-    return merged
+    """dataset設定を取得する。"""
+    return config
 
 
 def _get_predict_config(config: dict) -> dict:
-    """predict設定にデフォルト値を補う。"""
-    merged = DEFAULT_PREDICT_CONFIG.copy()
-    merged.update(config.get("predict", {}))
-    return merged
+    """predict設定を取得する。"""
+    return config["predict"]
 
 
 def _target_unit(target_column: str) -> str:
@@ -308,7 +296,7 @@ def main() -> None:
     checkpoint = load_checkpoint(checkpoint_path, device)
     config = merge_config(file_config, checkpoint.get("config"))
     predict_config = _get_predict_config(config)
-    dataset_config = _get_dataset_config(config.get("dataset", {}))
+    dataset_config = _get_dataset_config(config["dataset"])
 
     model = build_model_for_prediction(config, checkpoint, device)
     image_paths = find_image_files(args.image)
