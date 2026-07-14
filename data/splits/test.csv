@@ -1,4 +1,4 @@
-image_path,stack_id,z_index,z_focus_index,defocus_index,z_current_um,z_focus_um,defocus_um,brenner_score,split
+image_path,stack_id,z_index,z_focus_position,defocus_position,z_current_um,z_focus_um,defocus_um,brenner_score,split
 data/wbc_multifocus/15_0.jpg,15,0,5,-5,0.0,2.0,-2.0,5626691.781897783,test
 data/wbc_multifocus/15_1.jpg,15,1,5,-4,0.4,2.0,-1.6,6578469.870078579,test
 data/wbc_multifocus/15_2.jpg,15,2,5,-3,0.8,2.0,-1.2000000000000002,8412576.188049037,test

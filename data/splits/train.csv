@@ -1,4 +1,4 @@
-image_path,stack_id,z_index,z_focus_index,defocus_index,z_current_um,z_focus_um,defocus_um,brenner_score,split
+image_path,stack_id,z_index,z_focus_position,defocus_position,z_current_um,z_focus_um,defocus_um,brenner_score,split
 data/wbc_multifocus/0_0.jpg,0,0,6,-6,0.0,2.4000000000000004,-2.4000000000000004,5040698.714928335,train
 data/wbc_multifocus/0_1.jpg,0,1,6,-5,0.4,2.4000000000000004,-2.0,4144225.6967175175,train
 data/wbc_multifocus/0_2.jpg,0,2,6,-4,0.8,2.4000000000000004,-1.6,4777179.833206039,train
