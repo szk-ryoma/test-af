@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Sequence
+from typing import NamedTuple, Sequence
+
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -134,21 +135,98 @@ def compute_brenner_curve(
     )
 
 
+class QuadraticFit(NamedTuple):
+    """局所二次関数フィットの結果。"""
+
+    coefficients: np.ndarray
+    fit_positions: np.ndarray
+    focus_position: float
+
+
+def fit_quadratic_peak(
+    positions: Sequence[int | float],
+    brenner_scores: Sequence[float],
+    window: int = 3,
+) -> QuadraticFit | None:
+    """実測最大点を中心とする局所二次関数フィットを計算する。
+
+    平坦または上向きの曲線、頂点がフィット範囲外、あるいは最大点の
+    左右に必要な点数を確保できない場合は ``None`` を返す。
+
+    引数:
+        positions: z-index やマイクロメートル値などの位置。
+        brenner_scores: 各位置に対応する Brenner フォーカススコア。
+        window: 最大点を含むフィット点数。3以上の奇数。
+
+    戻り値:
+        有効なフィット結果。フィットできない場合は ``None``。
+
+    例外:
+        ValueError: 入力が不正、または window が3以上の奇数でない場合。
+    """
+    if isinstance(window, bool) or not isinstance(window, (int, np.integer)):
+        raise ValueError("quadratic window must be an integer")
+    window = int(window)
+    if window < 3 or window % 2 == 0:
+        raise ValueError("quadratic window must be an odd integer greater than or equal to 3")
+
+    position_array = np.asarray(list(positions), dtype=np.float64)
+    score_array = np.asarray(list(brenner_scores), dtype=np.float64)
+    if len(position_array) != len(score_array):
+        raise ValueError("positions and brenner_scores must have the same length")
+    if len(position_array) < window:
+        raise ValueError(f"quadratic fitting requires at least {window} positions")
+    if not np.all(np.isfinite(position_array)) or not np.all(np.isfinite(score_array)):
+        raise ValueError("positions and brenner_scores must contain only finite values")
+    if len(np.unique(position_array)) != len(position_array):
+        raise ValueError('method="quadratic" requires unique positions')
+
+    order = np.argsort(position_array)
+    sorted_positions = position_array[order]
+    sorted_scores = score_array[order]
+    max_index = int(np.argmax(sorted_scores))
+    radius = window // 2
+    fit_start = max_index - radius
+    fit_end = max_index + radius + 1
+
+    if fit_start < 0 or fit_end > len(sorted_positions):
+        return None
+
+    fit_positions = sorted_positions[fit_start:fit_end]
+    fit_scores = sorted_scores[fit_start:fit_end]
+    coefficients = np.polyfit(fit_positions, fit_scores, deg=2)
+    quadratic_coefficient, linear_coefficient, _ = coefficients
+    if quadratic_coefficient >= 0.0:
+        return None
+
+    focus_position = -linear_coefficient / (2.0 * quadratic_coefficient)
+    if (
+        not np.isfinite(focus_position)
+        or focus_position < fit_positions[0]
+        or focus_position > fit_positions[-1]
+    ):
+        return None
+
+    return QuadraticFit(coefficients, fit_positions, float(focus_position))
+
+
 def estimate_focus_position(
     positions: Sequence[int | float],
     brenner_scores: Sequence[float],
     method: str = "max",
+    quadratic_window: int = 3,
 ) -> float:
     """Brenner スコアから最良フォーカスの位置を推定する。
 
     座標の単位には依存しない。``method="max"`` では最大スコアに対応する
-    撮影位置を返す。``method="quadratic"`` では最大点とその前後の3点に
-    二次関数をフィットし、頂点を画像間の連続位置として返す。
+    撮影位置を返す。``method="quadratic"`` では最大点を中心とする
+    ``quadratic_window`` 点に二次関数をフィットし、頂点を画像間の連続位置として返す。
 
     引数:
         positions: z-index やマイクロメートル値などの位置。
         brenner_scores: 各位置に対応する Brenner フォーカススコア。
         method: ``"max"`` または ``"quadratic"``。
+        quadratic_window: quadratic フィットに使う点数。3以上の奇数。
 
     戻り値:
         推定した焦点位置。常に ``float`` で返す。
@@ -178,40 +256,15 @@ def estimate_focus_position(
     if method == "max":
         return max_position
 
-    if len(position_array) < 3:
-        raise ValueError('method="quadratic" requires at least three positions')
-    if len(np.unique(position_array)) != len(position_array):
-        raise ValueError('method="quadratic" requires unique positions')
-
-    order = np.argsort(position_array)
-    sorted_positions = position_array[order]
-    sorted_scores = score_array[order]
-    sorted_max_index = int(np.argmax(sorted_scores))
-    max_position = float(sorted_positions[sorted_max_index])
-
-    # 最大点の両側がなければ補間できないため、実測最大位置を返す。
-    if sorted_max_index == 0 or sorted_max_index == len(sorted_positions) - 1:
-        return max_position
-
-    fit_positions = sorted_positions[sorted_max_index - 1 : sorted_max_index + 2]
-    fit_scores = sorted_scores[sorted_max_index - 1 : sorted_max_index + 2]
-    quadratic_coefficient, linear_coefficient, _ = np.polyfit(fit_positions, fit_scores, deg=2)
-
-    # 平坦または上向きの曲線はピークを推定できないため、実測最大位置へ戻す。
-    if quadratic_coefficient >= 0.0:
-        return max_position
-
-    vertex = -linear_coefficient / (2.0 * quadratic_coefficient)
-    if not np.isfinite(vertex) or vertex < fit_positions[0] or vertex > fit_positions[-1]:
-        return max_position
-
-    return float(vertex)
+    quadratic_fit = fit_quadratic_peak(position_array, score_array, window=quadratic_window)
+    return max_position if quadratic_fit is None else quadratic_fit.focus_position
 
 
 def estimate_focus_z(
     z_positions_um: Sequence[float],
     brenner_scores: Sequence[float],
     method: str = "max",
+    quadratic_window: int = 3,
 ) -> float:
     """Brenner スコアから最良フォーカスの z 位置を推定する。
 
@@ -219,6 +272,7 @@ def estimate_focus_z(
         z_positions_um: マイクロメートル単位の z 位置。
         brenner_scores: 各 z 位置に対応する Brenner フォーカススコア。
         method: ``"max"`` または ``"quadratic"``。
+        quadratic_window: quadratic フィットに使う点数。3以上の奇数。
 
     戻り値:
         推定した z 方向の焦点位置。
@@ -227,7 +281,14 @@ def estimate_focus_z(
         ValueError: 入力の長さが一致しない、または値が 1 つもない場合。
         NotImplementedError: ``method`` が未対応の場合。
     """
-    return float(estimate_focus_position(z_positions_um, brenner_scores, method=method))
+    return float(
+        estimate_focus_position(
+            z_positions_um,
+            brenner_scores,
+            method=method,
+            quadratic_window=quadratic_window,
+        )
+    )
 
 
 def _parse_args() -> argparse.Namespace:
@@ -258,6 +319,12 @@ def _parse_args() -> argparse.Namespace:
         default="max",
         help="焦点位置の推定方法。デフォルト: max。",
     )
+    parser.add_argument(
+        "--quadratic-window",
+        type=int,
+        default=3,
+        help="quadratic フィットに使う奇数の点数。デフォルト: 3。",
+    )
     return parser.parse_args()
 
 
@@ -268,7 +335,12 @@ def main() -> None:
     print("pass2")
     curve = compute_brenner_curve(args.images, args.z, shift=args.shift)
     print("pass3")
-    focus_z = estimate_focus_z(curve["z_current_um"], curve["brenner_score"], method=args.method)
+    focus_z = estimate_focus_z(
+        curve["z_current_um"],
+        curve["brenner_score"],
+        method=args.method,
+        quadratic_window=args.quadratic_window,
+    )
     print("pass4")
     print(curve.to_string(index=False))
     print(f"\nEstimated focus z: {focus_z} um")

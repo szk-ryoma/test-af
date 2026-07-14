@@ -6,6 +6,7 @@ make_labels:
 
   brenner_shift: 2
   focus_method: max
+  quadratic_window: 5
   z_step_um: 0.4
 
   train_ratio: 0.8

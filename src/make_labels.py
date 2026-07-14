@@ -10,7 +10,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from brenner import compute_brenner_scores, estimate_focus_position
+from brenner import compute_brenner_scores, estimate_focus_position, fit_quadratic_peak
 
 
 
@@ -109,6 +109,7 @@ def compute_labels_for_stack(
     brenner_shift: int = 2,
     focus_method: str = "max",
     z_step_um: float | None = None,
+    quadratic_window: int = 3,
 ) -> pd.DataFrame:
     """1つの Z-stack に対して Brenner スコアと焦点ずれラベルを計算する。
 
@@ -117,13 +118,15 @@ def compute_labels_for_stack(
         brenner_shift: Brenner 勾配に使う縦方向のピクセルずれ量。
         focus_method: 焦点位置の推定方法。``"max"`` または ``"quadratic"``。
         z_step_um: z_index 1 ステップあたりの物理距離。未指定なら物理距離列は NaN。
+        quadratic_window: quadratic フィットに使う点数。3以上の奇数。
 
     戻り値:
         ラベル列と Brenner スコアを含む DataFrame。
 
     例外:
-        ValueError: stack が複数混ざっている、または画像数が3枚未満の場合。
-        NotImplementedError: focus_method が ``"max"`` 以外の場合。
+        ValueError: stack が複数混ざっている、画像数が不足する、
+            または quadratic_window が不正な場合。
+        NotImplementedError: focus_method が未対応の場合。
     """
     stack_ids = stack_df["stack_id"].unique()
     if len(stack_ids) != 1:
@@ -134,7 +137,12 @@ def compute_labels_for_stack(
     sorted_df = stack_df.sort_values("z_index", ignore_index=True).copy()
     scores = compute_brenner_scores(sorted_df["image_path"], shift=brenner_shift)
     z_indices = sorted_df["z_index"].to_numpy(dtype=np.int64)
-    z_focus_position = estimate_focus_position(z_indices, scores, method=focus_method)
+    z_focus_position = estimate_focus_position(
+        z_indices,
+        scores,
+        method=focus_method,
+        quadratic_window=quadratic_window,
+    )
 
     result = sorted_df.copy()
     result["z_focus_position"] = z_focus_position
@@ -229,21 +237,42 @@ def split_by_stack_id(
 def save_brenner_curve_plot(
     stack_labels_df: pd.DataFrame,
     output_path: Path,
+    quadratic_window: int = 3,
 ) -> None:
-    """Brenner curve の PNG 図を保存する。
+    """Brenner curve と有効な quadratic 近似カーブの PNG 図を保存する。
 
     引数:
         stack_labels_df: 1つの stack_id のラベル DataFrame。
         output_path: 保存先 PNG パス。
+        quadratic_window: quadratic フィットに使う点数。3以上の奇数。
     """
     import matplotlib.pyplot as plt
 
     sorted_df = stack_labels_df.sort_values("z_index")
+    z_indices = sorted_df["z_index"].to_numpy(dtype=np.float64)
+    brenner_scores = sorted_df["brenner_score"].to_numpy(dtype=np.float64)
     z_focus_position = float(sorted_df["z_focus_position"].iloc[0])
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.figure(figsize=(6, 4))
-    plt.plot(sorted_df["z_index"], sorted_df["brenner_score"], marker="o")
+    plt.plot(z_indices, brenner_scores, marker="o", label="Brenner score")
+
+    quadratic_fit = fit_quadratic_peak(z_indices, brenner_scores, window=quadratic_window)
+    if quadratic_fit is not None:
+        curve_positions = np.linspace(
+            quadratic_fit.fit_positions[0],
+            quadratic_fit.fit_positions[-1],
+            num=200,
+        )
+        curve_scores = np.polyval(quadratic_fit.coefficients, curve_positions)
+        plt.plot(
+            curve_positions,
+            curve_scores,
+            color="orange",
+            linewidth=2,
+            label=f"quadratic fit ({quadratic_window} points, peak={quadratic_fit.focus_position:g})",
+        )
+
     plt.axvline(
         z_focus_position,
         color="red",
@@ -289,6 +318,7 @@ def build_labels(
     brenner_shift: int,
     focus_method: str,
     z_step_um: float | None,
+    quadratic_window: int = 3,
 ) -> pd.DataFrame:
     """raw_dir から全 stack のラベル DataFrame を作成する。"""
     image_paths = find_image_files(raw_dir)
@@ -301,6 +331,7 @@ def build_labels(
                 stack_df,
                 brenner_shift=brenner_shift,
                 focus_method=focus_method,
+                quadratic_window=quadratic_window,
                 z_step_um=z_step_um,
             )
         )
@@ -316,11 +347,15 @@ def save_split_csvs(labels_df: pd.DataFrame, split_dir: Path) -> None:
         split_df.to_csv(split_dir / f"{split}.csv", index=False)
 
 
-def save_all_brenner_plots(labels_df: pd.DataFrame, figure_dir: Path) -> None:
+def save_all_brenner_plots(
+    labels_df: pd.DataFrame,
+    figure_dir: Path,
+    quadratic_window: int = 3,
+) -> None:
     """全 stack の Brenner curve plot を保存する。"""
     for stack_id, stack_df in labels_df.groupby("stack_id", sort=True):
         output_path = figure_dir / f"brenner_curve_{stack_id}.png"
-        save_brenner_curve_plot(stack_df, output_path)
+        save_brenner_curve_plot(stack_df, output_path, quadratic_window=quadratic_window)
 
 
 def print_summary(labels_df: pd.DataFrame) -> None:
@@ -345,6 +380,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--figure-dir", type=Path, default=None)
     parser.add_argument("--brenner-shift", type=int, default=None)
     parser.add_argument("--focus-method", choices=["max", "quadratic"], default=None)
+    parser.add_argument("--quadratic-window", type=int, default=None)
     parser.add_argument("--z-step-um", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
@@ -364,6 +400,11 @@ def main() -> None:
         args.brenner_shift if args.brenner_shift is not None else int(make_labels_config["brenner_shift"])
     )
     focus_method = args.focus_method or str(make_labels_config["focus_method"])
+    quadratic_window = (
+        args.quadratic_window
+        if args.quadratic_window is not None
+        else int(make_labels_config["quadratic_window"])
+    )
     z_step_um = args.z_step_um if args.z_step_um is not None else make_labels_config["z_step_um"]
     seed = args.seed if args.seed is not None else int(make_labels_config["seed"])
 
@@ -374,6 +415,7 @@ def main() -> None:
         raw_dir=raw_dir,
         brenner_shift=brenner_shift,
         focus_method=focus_method,
+        quadratic_window=quadratic_window,
         z_step_um=z_step_um,
     )
     labels_df = split_by_stack_id(
@@ -387,7 +429,7 @@ def main() -> None:
     labels_csv.parent.mkdir(parents=True, exist_ok=True)
     labels_df.to_csv(labels_csv, index=False)
     save_split_csvs(labels_df, split_dir)
-    save_all_brenner_plots(labels_df, figure_dir)
+    save_all_brenner_plots(labels_df, figure_dir, quadratic_window=quadratic_window)
     print_summary(labels_df)
 
 
