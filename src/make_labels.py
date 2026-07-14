@@ -9,9 +9,8 @@ from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
-from PIL import Image
 
-from brenner import brenner_gradient
+from brenner import compute_brenner_scores, estimate_focus_position
 
 
 
@@ -22,8 +21,8 @@ LABEL_COLUMNS = [
     "image_path",
     "stack_id",
     "z_index",
-    "z_focus_index",
-    "defocus_index",
+    "z_focus_position",
+    "defocus_position",
     "z_current_um",
     "z_focus_um",
     "defocus_um",
@@ -116,7 +115,7 @@ def compute_labels_for_stack(
     引数:
         stack_df: 1つの stack_id だけを含む DataFrame。
         brenner_shift: Brenner 勾配に使う縦方向のピクセルずれ量。
-        focus_method: 焦点位置の推定方法。現在は ``"max"`` のみ対応。
+        focus_method: 焦点位置の推定方法。``"max"`` または ``"quadratic"``。
         z_step_um: z_index 1 ステップあたりの物理距離。未指定なら物理距離列は NaN。
 
     戻り値:
@@ -126,9 +125,6 @@ def compute_labels_for_stack(
         ValueError: stack が複数混ざっている、または画像数が3枚未満の場合。
         NotImplementedError: focus_method が ``"max"`` 以外の場合。
     """
-    if focus_method != "max":
-        raise NotImplementedError('focus_method は現在 "max" のみ対応しています。')
-
     stack_ids = stack_df["stack_id"].unique()
     if len(stack_ids) != 1:
         raise ValueError("compute_labels_for_stack には1つの stack_id だけを含む DataFrame を渡してください。")
@@ -136,19 +132,13 @@ def compute_labels_for_stack(
         raise ValueError(f"stack_id={stack_ids[0]} の画像数が3枚未満です: {len(stack_df)}")
 
     sorted_df = stack_df.sort_values("z_index", ignore_index=True).copy()
-    brenner_scores = []
-    for image_path in sorted_df["image_path"]:
-        with Image.open(Path(image_path)) as image_file:
-            image = np.asarray(image_file)
-        brenner_scores.append(brenner_gradient(image, shift=brenner_shift))
-
-    scores = np.asarray(brenner_scores, dtype=np.float64)
+    scores = compute_brenner_scores(sorted_df["image_path"], shift=brenner_shift)
     z_indices = sorted_df["z_index"].to_numpy(dtype=np.int64)
-    z_focus_index = int(z_indices[int(np.argmax(scores))])
+    z_focus_position = estimate_focus_position(z_indices, scores, method=focus_method)
 
     result = sorted_df.copy()
-    result["z_focus_index"] = z_focus_index
-    result["defocus_index"] = result["z_index"].astype(int) - z_focus_index
+    result["z_focus_position"] = z_focus_position
+    result["defocus_position"] = result["z_index"].astype(float) - z_focus_position
 
     if z_step_um is None:
         result["z_current_um"] = np.nan
@@ -157,8 +147,8 @@ def compute_labels_for_stack(
     else:
         z_step = float(z_step_um)
         result["z_current_um"] = result["z_index"].astype(float) * z_step
-        result["z_focus_um"] = float(z_focus_index) * z_step
-        result["defocus_um"] = result["defocus_index"].astype(float) * z_step
+        result["z_focus_um"] = z_focus_position * z_step
+        result["defocus_um"] = result["defocus_position"] * z_step
 
     result["brenner_score"] = scores
     return result[
@@ -166,8 +156,8 @@ def compute_labels_for_stack(
             "image_path",
             "stack_id",
             "z_index",
-            "z_focus_index",
-            "defocus_index",
+            "z_focus_position",
+            "defocus_position",
             "z_current_um",
             "z_focus_um",
             "defocus_um",
@@ -249,12 +239,17 @@ def save_brenner_curve_plot(
     import matplotlib.pyplot as plt
 
     sorted_df = stack_labels_df.sort_values("z_index")
-    z_focus_index = int(sorted_df["z_focus_index"].iloc[0])
+    z_focus_position = float(sorted_df["z_focus_position"].iloc[0])
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.figure(figsize=(6, 4))
     plt.plot(sorted_df["z_index"], sorted_df["brenner_score"], marker="o")
-    plt.axvline(z_focus_index, color="red", linestyle="--", label=f"focus z_index={z_focus_index}")
+    plt.axvline(
+        z_focus_position,
+        color="red",
+        linestyle="--",
+        label=f"focus position={z_focus_position:g}",
+    )
     plt.xlabel("z_index")
     plt.ylabel("brenner_score")
     plt.legend()
@@ -349,6 +344,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--split-dir", type=Path, default=None)
     parser.add_argument("--figure-dir", type=Path, default=None)
     parser.add_argument("--brenner-shift", type=int, default=None)
+    parser.add_argument("--focus-method", choices=["max", "quadratic"], default=None)
     parser.add_argument("--z-step-um", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
@@ -369,7 +365,7 @@ def main() -> None:
     split_dir = args.split_dir or Path(data_config["split_dir"])
     figure_dir = args.figure_dir or Path(outputs_config["figure_dir"])
     brenner_shift = args.brenner_shift if args.brenner_shift is not None else int(brenner_config["shift"])
-    focus_method = str(brenner_config["focus_method"])
+    focus_method = args.focus_method or str(brenner_config["focus_method"])
     z_step_um = args.z_step_um if args.z_step_um is not None else label_config["z_step_um"]
     seed = args.seed if args.seed is not None else int(split_config["seed"])
 
