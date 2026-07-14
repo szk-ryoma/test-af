@@ -71,3 +71,10 @@ predict:
   checkpoint: outputs/checkpoints/best_model.pth
   device: auto
   output_csv: outputs/predictions/predictions.csv
+
+roi_brenner:
+  input_dir: data/wbc
+  output_dir: Outputs/wbc
+  rows: 1
+  cols: 2
+  shift: 2
