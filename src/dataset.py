@@ -113,16 +113,20 @@ class AutofocusDataset(Dataset):
 
 
 def load_config(config_path: str | Path) -> dict:
-    """YAML config を読み込む。存在しない場合や空の場合は空 dict を返す。"""
+    """YAML config を読み込む。"""
     path = Path(config_path)
     if not path.exists():
-        return {}
+        raise FileNotFoundError(f"config ファイルが見つかりません: {path}")
 
     import yaml
 
     with path.open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
-    return {} if config is None else config
+    if config is None:
+        raise ValueError(f"config ファイルが空です: {path}")
+    if not isinstance(config, dict):
+        raise ValueError(f"config のトップレベルは mapping である必要があります: {path}")
+    return config
 
 
 def build_dataset_from_config(
@@ -130,15 +134,15 @@ def build_dataset_from_config(
     config: dict,
 ) -> AutofocusDataset:
     """config の dataset セクションから AutofocusDataset を作成する。"""
-    dataset_config = config.get("dataset", {})
+    dataset_config = config["dataset"]
     return AutofocusDataset(
         csv_path=csv_path,
-        target_column=dataset_config.get("target_column", "defocus_position"),
-        image_size=dataset_config.get("image_size", 672),
-        channels=dataset_config.get("channels", 3),
-        normalize=dataset_config.get("normalize", True),
-        mean=dataset_config.get("mean", [0.485, 0.456, 0.406]),
-        std=dataset_config.get("std", [0.229, 0.224, 0.225]),
+        target_column=dataset_config["target_column"],
+        image_size=dataset_config["image_size"],
+        channels=dataset_config["channels"],
+        normalize=dataset_config["normalize"],
+        mean=dataset_config["mean"],
+        std=dataset_config["std"],
     )
 
 

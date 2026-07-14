@@ -56,27 +56,31 @@ def count_parameters(model: torch.nn.Module) -> int:
 
 def build_model_from_config(config: dict) -> torch.nn.Module:
     """config の model セクションと dataset.channels からモデルを作成する。"""
-    model_config = config.get("model", {})
-    dataset_config = config.get("dataset", {})
+    model_config = config["model"]
+    dataset_config = config["dataset"]
     return build_model(
-        name=model_config.get("name", "mobilenet_v3_small"),
-        pretrained=model_config.get("pretrained", True),
-        output_dim=model_config.get("output_dim", 1),
-        in_channels=dataset_config.get("channels", 3),
+        name=model_config["name"],
+        pretrained=model_config["pretrained"],
+        output_dim=model_config["output_dim"],
+        in_channels=dataset_config["channels"],
     )
 
 
 def load_config(config_path: str | Path) -> dict:
-    """YAML config を読み込む。存在しない場合や空の場合は空 dict を返す。"""
+    """YAML config を読み込む。"""
     path = Path(config_path)
     if not path.exists():
-        return {}
+        raise FileNotFoundError(f"config ファイルが見つかりません: {path}")
 
     import yaml
 
     with path.open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
-    return {} if config is None else config
+    if config is None:
+        raise ValueError(f"config ファイルが空です: {path}")
+    if not isinstance(config, dict):
+        raise ValueError(f"config のトップレベルは mapping である必要があります: {path}")
+    return config
 
 
 def _build_mobilenet_v3_small(pretrained: bool) -> torch.nn.Module:
@@ -142,11 +146,11 @@ def main() -> None:
     model = build_model_from_config(config)
     model.eval()
 
-    model_config = config.get("model", {})
-    dataset_config = config.get("dataset", {})
-    model_name = model_config.get("name", "mobilenet_v3_small")
-    channels = int(dataset_config.get("channels", 3))
-    image_size = int(dataset_config.get("image_size", 672))
+    model_config = config["model"]
+    dataset_config = config["dataset"]
+    model_name = model_config["name"]
+    channels = int(dataset_config["channels"])
+    image_size = int(dataset_config["image_size"])
 
     dummy_input = torch.zeros((2, channels, image_size, image_size), dtype=torch.float32)
     with torch.no_grad():
