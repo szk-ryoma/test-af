@@ -16,6 +16,7 @@ make_labels:
 
 dataset:
   target_column: defocus_position
+  target_unit: µm
   image_size: 672
   channels: 3
   normalize: true
@@ -47,7 +48,7 @@ train:
 
 eval:
   test_csv: data/splits/test.csv
-  checkpoint: outputs/checkpoints/best_model.pth
+  checkpoint: outputs/checkpoints/best_model-100epoch.pth
   batch_size: 16
   num_workers: 4
   device: auto
@@ -55,6 +56,15 @@ eval:
   predictions_csv: outputs/predictions/test_predictions.csv
   pred_vs_true_fig: outputs/figures/pred_vs_true.png
   error_hist_fig: outputs/figures/error_histogram.png
+  error_vs_defocus_fig: outputs/eval/prediction_error_vs_defocus.png
+  error_vs_detail_fig: outputs/eval/prediction_error_vs_brenner.png
+  error_vs_defocus_stats_csv: outputs/eval/prediction_error_vs_defocus_stats.csv
+  error_vs_detail_stats_csv: outputs/eval/prediction_error_vs_brenner_stats.csv
+  detail_score_column: brenner_score
+  analysis_num_bins: 10
+  analysis_min_bin_samples: 3
+  detail_x_log_scale: false
+  plot_dpi: 300
   sign_epsilon: 0.0
 
 predict:
