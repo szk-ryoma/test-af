@@ -215,7 +215,7 @@ def _get_metadata_df(dataset: Any, test_csv: Path, config: dict) -> pd.DataFrame
             if isinstance(value, pd.DataFrame):
                 return value.copy()
 
-    target_column = config.get("dataset", {}).get("target_column", "defocus_index")
+    target_column = config.get("dataset", {}).get("target_column", "defocus_position")
     metadata_df = pd.read_csv(test_csv)
     return metadata_df.dropna(subset=[target_column]).reset_index(drop=True)
 

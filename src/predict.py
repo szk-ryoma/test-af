@@ -22,7 +22,7 @@ from model import build_model_from_config
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 
 DEFAULT_DATASET_CONFIG = {
-    "target_column": "defocus_index",
+    "target_column": "defocus_position",
     "image_size": 672,
     "channels": 3,
     "normalize": True,
@@ -267,6 +267,8 @@ def _target_unit(target_column: str) -> str:
     """target_columnに対応する単位文字列を返す。"""
     if target_column == "defocus_um":
         return "um"
+    if target_column == "defocus_position":
+        return "z-step"
     if target_column == "defocus_index":
         return "index"
     return "target_unit"

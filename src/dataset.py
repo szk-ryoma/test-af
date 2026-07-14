@@ -19,7 +19,7 @@ class AutofocusDataset(Dataset):
     def __init__(
         self,
         csv_path: str | Path,
-        target_column: str = "defocus_index",
+        target_column: str = "defocus_position",
         image_size: int = 672,
         channels: int = 3,
         normalize: bool = True,
@@ -133,7 +133,7 @@ def build_dataset_from_config(
     dataset_config = config.get("dataset", {})
     return AutofocusDataset(
         csv_path=csv_path,
-        target_column=dataset_config.get("target_column", "defocus_index"),
+        target_column=dataset_config.get("target_column", "defocus_position"),
         image_size=dataset_config.get("image_size", 672),
         channels=dataset_config.get("channels", 3),
         normalize=dataset_config.get("normalize", True),
