@@ -15,7 +15,7 @@ make_labels:
   seed: 42
 
 dataset:
-  target_column: defocus_position
+  target_column: defocus_um
   target_unit: µm
   image_size: 672
   channels: 3
@@ -32,7 +32,7 @@ train:
   train_csv: data/splits/train.csv
   val_csv: data/splits/val.csv
   batch_size: 16
-  epochs: 3
+  epochs: 100
   learning_rate: 0.0001
   weight_decay: 0.0001
   optimizer: adamw
@@ -48,7 +48,7 @@ train:
 
 eval:
   test_csv: data/splits/test.csv
-  checkpoint: outputs/checkpoints/best_model-100epoch.pth
+  checkpoint: outputs/checkpoints/best_model.pth
   batch_size: 16
   num_workers: 4
   device: auto
@@ -61,7 +61,7 @@ eval:
   error_vs_defocus_stats_csv: outputs/eval/prediction_error_vs_defocus_stats.csv
   error_vs_detail_stats_csv: outputs/eval/prediction_error_vs_brenner_stats.csv
   detail_score_column: brenner_score
-  analysis_num_bins: 10
+  analysis_num_bins: 10  # Brenner score のquantileビン数
   analysis_min_bin_samples: 3
   detail_x_log_scale: false
   plot_dpi: 300

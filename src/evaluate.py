@@ -155,7 +155,7 @@ def summarize_binned_errors(
     min_bin_samples: int,
     binning: Literal["defocus", "quantile"],
 ) -> pd.DataFrame:
-    """横軸値を指定方式でビニングし、誤差統計量を返す。"""
+    """defocus値ごと、またはquantileビンごとの誤差統計量を返す。"""
     if num_bins < 2:
         raise ValueError(f"analysis_num_bins は2以上にしてください: {num_bins}")
     if min_bin_samples < 1:
@@ -172,18 +172,11 @@ def summarize_binned_errors(
     if frame.empty:
         raise ValueError("NaN と inf を除外すると、ビニング可能なサンプルがありません。")
 
-    unique_count = frame["x"].nunique()
     if binning == "defocus":
-        if unique_count <= num_bins:
-            frame["bin"] = frame["x"]
-            grouped = frame.groupby("bin", sort=True, observed=True)
-        else:
-            edges = np.linspace(frame["x"].min(), frame["x"].max(), num_bins + 1)
-            frame["bin"] = pd.cut(
-                frame["x"], bins=edges, include_lowest=True, duplicates="drop"
-            )
-            grouped = frame.groupby("bin", sort=True, observed=True)
+        frame["bin"] = frame["x"]
+        grouped = frame.groupby("bin", sort=True, observed=True)
     elif binning == "quantile":
+        unique_count = frame["x"].nunique()
         if unique_count == 1:
             frame["bin"] = frame["x"]
         else:
@@ -214,8 +207,9 @@ def _save_binned_error_plot(
     y_label: str,
     dpi: int,
     x_log_scale: bool = False,
+    std_display: Literal["band", "errorbar"] = "band",
 ) -> None:
-    """ビン平均と標準偏差帯を共通形式の図として保存する。"""
+    """ビン平均と標準偏差を指定形式の図として保存する。"""
     import matplotlib.pyplot as plt
 
     if x_log_scale and np.any(summary["x_mean"].to_numpy() <= 0.0):
@@ -228,8 +222,21 @@ def _save_binned_error_plot(
         x = summary["x_mean"].to_numpy(dtype=np.float64)
         mean = summary["error_mean"].to_numpy(dtype=np.float64)
         std = summary["error_std"].to_numpy(dtype=np.float64)
-        ax.plot(x, mean, marker="o", linestyle="-", label="Mean error")
-        ax.fill_between(x, mean - std, mean + std, alpha=0.25, label="±1 SD")
+        mean_line = ax.plot(x, mean, marker="o", linestyle="-", label="Mean error")[0]
+        if std_display == "band":
+            ax.fill_between(x, mean - std, mean + std, alpha=0.25, label="±1 SD")
+        elif std_display == "errorbar":
+            ax.errorbar(
+                x,
+                mean,
+                yerr=std,
+                fmt="none",
+                ecolor=mean_line.get_color(),
+                capsize=4,
+                label="±1 SD",
+            )
+        else:
+            raise ValueError(f"未対応の標準偏差表示形式です: {std_display}")
         ax.axhline(0.0, color="black", linestyle="--", linewidth=1.0)
         if x_log_scale:
             ax.set_xscale("log")
@@ -252,7 +259,7 @@ def save_error_vs_defocus_plot(
     target_unit: str = "µm",
     dpi: int = 300,
 ) -> pd.DataFrame:
-    """予測誤差と正解デフォーカス量の関係を保存し、ビン統計量を返す。"""
+    """defocus値ごとの予測誤差を保存し、その統計量を返す。"""
     true = np.asarray(true_target, dtype=np.float64).reshape(-1)
     pred = np.asarray(pred_target, dtype=np.float64).reshape(-1)
     if len(true) != len(pred):
@@ -266,6 +273,7 @@ def save_error_vs_defocus_plot(
         x_label=f"True defocus distance ({target_unit})",
         y_label=f"Prediction error ({target_unit})",
         dpi=dpi,
+        std_display="errorbar",
     )
     return summary
 
