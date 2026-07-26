@@ -55,6 +55,30 @@ def validate_roi(
     return roi
 
 
+def roi_bounds(roi: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """中心座標形式の ROI を ``(x_start, y_start, x_end, y_end)`` に変換する。"""
+    center_x, center_y, width, height = roi
+    x_start = center_x - width // 2
+    y_start = center_y - height // 2
+    return x_start, y_start, x_start + width, y_start + height
+
+
+def validate_roi_bounds(
+    image_width: int,
+    image_height: int,
+    roi: tuple[int, int, int, int],
+    image_path: Path,
+) -> tuple[int, int, int, int]:
+    """ROI が画像内に収まることを検証し、矩形の境界座標を返す。"""
+    x_start, y_start, x_end, y_end = roi_bounds(roi)
+    if x_start < 0 or y_start < 0 or x_end > image_width or y_end > image_height:
+        raise ValueError(
+            f"ROI ({x_start}, {y_start})-({x_end}, {y_end}) が画像範囲 "
+            f"0-{image_width}, 0-{image_height} を超えています: {image_path}"
+        )
+    return x_start, y_start, x_end, y_end
+
+
 def compute_roi_brenner_scores(
     image_paths: Sequence[str | Path],
     roi: tuple[int, int, int, int],
@@ -65,12 +89,6 @@ def compute_roi_brenner_scores(
     ROI は ``(center_x, center_y, width, height)`` で指定する。幅または高さが
     奇数の場合も、切り出す画素数は指定値と正確に一致する。
     """
-    center_x, center_y, width, height = roi
-    x_start = center_x - width // 2
-    y_start = center_y - height // 2
-    x_end = x_start + width
-    y_end = y_start + height
-
     scores = []
     for image_path in image_paths:
         path = Path(image_path)
@@ -78,14 +96,57 @@ def compute_roi_brenner_scores(
             image = np.asarray(image_file)
 
         image_height, image_width = image.shape[:2]
-        if x_start < 0 or y_start < 0 or x_end > image_width or y_end > image_height:
-            raise ValueError(
-                f"ROI ({x_start}, {y_start})-({x_end}, {y_end}) が画像範囲 "
-                f"0-{image_width}, 0-{image_height} を超えています: {path}"
-            )
+        x_start, y_start, x_end, y_end = validate_roi_bounds(
+            image_width,
+            image_height,
+            roi,
+            path,
+        )
         scores.append(brenner_gradient(image[y_start:y_end, x_start:x_end], shift=shift))
 
     return np.asarray(scores, dtype=np.float64)
+
+
+def save_roi_preview(
+    image_path: Path,
+    roi: tuple[int, int, int, int],
+    output_path: Path,
+) -> None:
+    """先頭の入力画像に ROI の矩形を重ねたプレビュー画像を保存する。"""
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    with Image.open(image_path) as image_file:
+        image = np.asarray(image_file)
+
+    image_height, image_width = image.shape[:2]
+    x_start, y_start, x_end, y_end = validate_roi_bounds(
+        image_width,
+        image_height,
+        roi,
+        image_path,
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure, axis = plt.subplots(figsize=(8, 6))
+    axis.imshow(image, cmap="gray" if image.ndim == 2 else None)
+    axis.add_patch(
+        Rectangle(
+            (x_start, y_start),
+            x_end - x_start,
+            y_end - y_start,
+            fill=False,
+            edgecolor="red",
+            linewidth=2,
+        )
+    )
+    axis.set_title(
+        f"ROI: center=({roi[0]}, {roi[1]}), size={roi[2]}x{roi[3]}"
+    )
+    axis.axis("off")
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
 
 
 def parse_stack_filename(path: Path) -> tuple[str, int]:
@@ -492,6 +553,12 @@ def main() -> None:
 
     if z_step_um is not None:
         z_step_um = float(z_step_um)
+
+    if roi is not None:
+        first_image_path = find_image_files(raw_dir)[0]
+        roi_preview_path = figure_dir / "roi_preview.png"
+        save_roi_preview(first_image_path, roi, roi_preview_path)
+        print(f"ROI プレビュー: {roi_preview_path}（入力先頭画像: {first_image_path}）")
 
     labels_df = build_labels(
         raw_dir=raw_dir,
