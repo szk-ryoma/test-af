@@ -9,8 +9,9 @@ from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 
-from brenner import compute_brenner_scores, estimate_focus_position, fit_quadratic_peak
+from brenner import brenner_gradient, compute_brenner_scores, estimate_focus_position, fit_quadratic_peak
 
 
 
@@ -29,6 +30,62 @@ LABEL_COLUMNS = [
     "brenner_score",
     "split",
 ]
+
+
+def validate_roi(
+    center_x: int | None,
+    center_y: int | None,
+    width: int | None,
+    height: int | None,
+) -> tuple[int, int, int, int] | None:
+    """ROI 指定を検証し、``(center_x, center_y, width, height)`` を返す。
+
+    4項目がすべて未指定なら ``None`` を返す。一部だけが指定されている場合や、
+    幅・高さが正でない場合はエラーにする。
+    """
+    values = (center_x, center_y, width, height)
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise ValueError("ROI を使う場合は center_x, center_y, width, height をすべて指定してください。")
+
+    roi = tuple(int(value) for value in values)
+    if roi[2] <= 0 or roi[3] <= 0:
+        raise ValueError("ROI の width と height は1以上である必要があります。")
+    return roi
+
+
+def compute_roi_brenner_scores(
+    image_paths: Sequence[str | Path],
+    roi: tuple[int, int, int, int],
+    shift: int = 2,
+) -> np.ndarray:
+    """各画像の指定 ROI だけを使って Brenner スコアを計算する。
+
+    ROI は ``(center_x, center_y, width, height)`` で指定する。幅または高さが
+    奇数の場合も、切り出す画素数は指定値と正確に一致する。
+    """
+    center_x, center_y, width, height = roi
+    x_start = center_x - width // 2
+    y_start = center_y - height // 2
+    x_end = x_start + width
+    y_end = y_start + height
+
+    scores = []
+    for image_path in image_paths:
+        path = Path(image_path)
+        with Image.open(path) as image_file:
+            image = np.asarray(image_file)
+
+        image_height, image_width = image.shape[:2]
+        if x_start < 0 or y_start < 0 or x_end > image_width or y_end > image_height:
+            raise ValueError(
+                f"ROI ({x_start}, {y_start})-({x_end}, {y_end}) が画像範囲 "
+                f"0-{image_width}, 0-{image_height} を超えています: {path}"
+            )
+        scores.append(brenner_gradient(image[y_start:y_end, x_start:x_end], shift=shift))
+
+    return np.asarray(scores, dtype=np.float64)
 
 
 def parse_stack_filename(path: Path) -> tuple[str, int]:
@@ -110,6 +167,7 @@ def compute_labels_for_stack(
     focus_method: str = "max",
     z_step_um: float | None = None,
     quadratic_window: int = 3,
+    roi: tuple[int, int, int, int] | None = None,
 ) -> pd.DataFrame:
     """1つの Z-stack に対して Brenner スコアと焦点ずれラベルを計算する。
 
@@ -119,6 +177,7 @@ def compute_labels_for_stack(
         focus_method: 焦点位置の推定方法。``"max"`` または ``"quadratic"``。
         z_step_um: z_index 1 ステップあたりの物理距離。未指定なら物理距離列は NaN。
         quadratic_window: quadratic フィットに使う点数。3以上の奇数。
+        roi: ``(center_x, center_y, width, height)``。未指定なら画像全体。
 
     戻り値:
         ラベル列と Brenner スコアを含む DataFrame。
@@ -135,7 +194,14 @@ def compute_labels_for_stack(
         raise ValueError(f"stack_id={stack_ids[0]} の画像数が3枚未満です: {len(stack_df)}")
 
     sorted_df = stack_df.sort_values("z_index", ignore_index=True).copy()
-    scores = compute_brenner_scores(sorted_df["image_path"], shift=brenner_shift)
+    if roi is None:
+        scores = compute_brenner_scores(sorted_df["image_path"], shift=brenner_shift)
+    else:
+        scores = compute_roi_brenner_scores(
+            sorted_df["image_path"],
+            roi=roi,
+            shift=brenner_shift,
+        )
     z_indices = sorted_df["z_index"].to_numpy(dtype=np.int64)
     z_focus_position = estimate_focus_position(
         z_indices,
@@ -319,6 +385,7 @@ def build_labels(
     focus_method: str,
     z_step_um: float | None,
     quadratic_window: int = 3,
+    roi: tuple[int, int, int, int] | None = None,
 ) -> pd.DataFrame:
     """raw_dir から全 stack のラベル DataFrame を作成する。"""
     image_paths = find_image_files(raw_dir)
@@ -333,6 +400,7 @@ def build_labels(
                 focus_method=focus_method,
                 quadratic_window=quadratic_window,
                 z_step_um=z_step_um,
+                roi=roi,
             )
         )
 
@@ -382,6 +450,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--focus-method", choices=["max", "quadratic"], default=None)
     parser.add_argument("--quadratic-window", type=int, default=None)
     parser.add_argument("--z-step-um", type=float, default=None)
+    parser.add_argument("--roi-center-x", type=int, default=None)
+    parser.add_argument("--roi-center-y", type=int, default=None)
+    parser.add_argument("--roi-width", type=int, default=None)
+    parser.add_argument("--roi-height", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
@@ -407,6 +479,16 @@ def main() -> None:
     )
     z_step_um = args.z_step_um if args.z_step_um is not None else make_labels_config["z_step_um"]
     seed = args.seed if args.seed is not None else int(make_labels_config["seed"])
+    roi = validate_roi(
+        args.roi_center_x
+        if args.roi_center_x is not None
+        else make_labels_config.get("roi_center_x"),
+        args.roi_center_y
+        if args.roi_center_y is not None
+        else make_labels_config.get("roi_center_y"),
+        args.roi_width if args.roi_width is not None else make_labels_config.get("roi_width"),
+        args.roi_height if args.roi_height is not None else make_labels_config.get("roi_height"),
+    )
 
     if z_step_um is not None:
         z_step_um = float(z_step_um)
@@ -417,6 +499,7 @@ def main() -> None:
         focus_method=focus_method,
         quadratic_window=quadratic_window,
         z_step_um=z_step_um,
+        roi=roi,
     )
     labels_df = split_by_stack_id(
         labels_df,

@@ -9,6 +9,12 @@ make_labels:
   quadratic_window: 5
   z_step_um: 0.4
 
+  # ROI を使う場合は4項目をすべて指定する。未指定時は画像全体を使用する。
+  roi_center_x: null
+  roi_center_y: null
+  roi_width: null
+  roi_height: null
+
   train_ratio: 0.8
   val_ratio: 0.1
   test_ratio: 0.1
