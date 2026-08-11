@@ -11,6 +11,7 @@ import pandas as pd
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
+from torchvision.transforms import v2
 
 
 class AutofocusDataset(Dataset):
@@ -25,6 +26,8 @@ class AutofocusDataset(Dataset):
         normalize: bool = True,
         mean: Sequence[float] | None = None,
         std: Sequence[float] | None = None,
+        augment: bool = False,
+        augmentation_config: dict | None = None,
     ) -> None:
         """CSVを読み込み、画像とターゲットを返す Dataset を初期化する。
 
@@ -36,6 +39,8 @@ class AutofocusDataset(Dataset):
             normalize: mean/std で正規化するかどうか。
             mean: 正規化に使う平均値。
             std: 正規化に使う標準偏差。
+            augment: データ拡張を適用するかどうか。学習データでのみ有効にする。
+            augmentation_config: 反転、回転、コントラスト変化の設定。
 
         例外:
             ValueError: 必須列がない、有効行がない、または channels が不正な場合。
@@ -48,6 +53,8 @@ class AutofocusDataset(Dataset):
         self.image_size = int(image_size)
         self.channels = int(channels)
         self.normalize = bool(normalize)
+        self.augment = bool(augment)
+        self.augmentation_config = augmentation_config or {}
 
         self.mean = self._prepare_stats(mean, default=[0.485, 0.456, 0.406])
         self.std = self._prepare_stats(std, default=[0.229, 0.224, 0.225])
@@ -63,6 +70,9 @@ class AutofocusDataset(Dataset):
             raise ValueError(f"target_column='{target_column}' に有効な行がありません。")
 
         self.df = df
+
+        self._validate_augmentation_config()
+        self.augmentation = self._build_augmentation()
 
     def __len__(self) -> int:
         """データ数を返す。"""
@@ -98,6 +108,8 @@ class AutofocusDataset(Dataset):
         with Image.open(image_path) as image_file:
             image = image_file.convert(mode)
             image = image.resize((self.image_size, self.image_size), Image.Resampling.BILINEAR)
+            if self.augment:
+                image = self._augment_image(image)
             image_array = np.asarray(image, dtype=np.float32) / 255.0
 
         if self.channels == 1:
@@ -110,6 +122,53 @@ class AutofocusDataset(Dataset):
             image_tensor = (image_tensor - self.mean) / self.std
 
         return image_tensor
+
+    def _validate_augmentation_config(self) -> None:
+        """データ拡張設定の値域を検証する。"""
+        for key in (
+            "horizontal_flip_probability",
+            "vertical_flip_probability",
+            "rotation_probability",
+            "contrast_probability",
+        ):
+            probability = float(self.augmentation_config.get(key, 0.0))
+            if not 0.0 <= probability <= 1.0:
+                raise ValueError(f"augmentation.{key} は 0.0〜1.0 で指定してください。")
+
+        rotation_degrees = float(self.augmentation_config.get("rotation_degrees", 0.0))
+        if rotation_degrees < 0.0:
+            raise ValueError("augmentation.rotation_degrees は 0 以上で指定してください。")
+
+        contrast_range = self.augmentation_config.get("contrast_range", [1.0, 1.0])
+        if not isinstance(contrast_range, (list, tuple)) or len(contrast_range) != 2:
+            raise ValueError("augmentation.contrast_range は [最小値, 最大値] で指定してください。")
+        contrast_min, contrast_max = map(float, contrast_range)
+        if contrast_min <= 0.0 or contrast_min > contrast_max:
+            raise ValueError("augmentation.contrast_range は 0 < 最小値 <= 最大値 を満たす必要があります。")
+
+    def _build_augmentation(self) -> v2.Compose:
+        """設定から torchvision のデータ拡張パイプラインを作成する。"""
+        config = self.augmentation_config
+        rotation_degrees = float(config.get("rotation_degrees", 0.0))
+        contrast_min, contrast_max = map(float, config.get("contrast_range", [1.0, 1.0]))
+        return v2.Compose(
+            [
+                v2.RandomHorizontalFlip(p=float(config.get("horizontal_flip_probability", 0.0))),
+                v2.RandomVerticalFlip(p=float(config.get("vertical_flip_probability", 0.0))),
+                v2.RandomApply(
+                    [v2.RandomRotation(degrees=rotation_degrees, interpolation=v2.InterpolationMode.BILINEAR)],
+                    p=float(config.get("rotation_probability", 0.0)),
+                ),
+                v2.RandomApply(
+                    [v2.ColorJitter(contrast=(contrast_min, contrast_max))],
+                    p=float(config.get("contrast_probability", 0.0)),
+                ),
+            ]
+        )
+
+    def _augment_image(self, image: Image.Image) -> Image.Image:
+        """torchvision のパイプラインで画像をランダムに拡張する。"""
+        return self.augmentation(image)
 
 
 def load_config(config_path: str | Path) -> dict:
@@ -132,6 +191,7 @@ def load_config(config_path: str | Path) -> dict:
 def build_dataset_from_config(
     csv_path: str | Path,
     config: dict,
+    augment: bool = False,
 ) -> AutofocusDataset:
     """config の dataset セクションから AutofocusDataset を作成する。"""
     dataset_config = config["dataset"]
@@ -143,6 +203,8 @@ def build_dataset_from_config(
         normalize=dataset_config["normalize"],
         mean=dataset_config["mean"],
         std=dataset_config["std"],
+        augment=augment,
+        augmentation_config=dataset_config.get("augmentation"),
     )
 
 

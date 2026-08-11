@@ -242,7 +242,7 @@ def main() -> None:
     set_seed(seed)
     device = get_device(device_name)
 
-    train_dataset = build_dataset_from_config(train_csv, config)
+    train_dataset = build_dataset_from_config(train_csv, config, augment=True)
     val_dataset = build_dataset_from_config(val_csv, config)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
